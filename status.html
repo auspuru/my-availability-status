@@ -1,0 +1,172 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Availability Status</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="/socket.io/socket.io.js"></script>
+</head>
+<body>
+    <div class="public-container">
+        <div id="loading">
+            <div class="card">
+                <div class="empty-state">
+                    <div class="spinner" style="border-color: var(--primary); border-top-color: transparent; width: 40px; height: 40px;"></div>
+                    <p>Loading status...</p>
+                </div>
+            </div>
+        </div>
+
+        <div id="statusContent" class="hidden">
+            <!-- Main Status Display -->
+            <div class="status-display">
+                <span id="statusIcon" class="status-big-icon">✅</span>
+                <div id="statusLabel" class="status-label">Available</div>
+                <div id="statusMessage" class="status-message">Feel free to reach out!</div>
+                <div id="statusTime" class="status-time">Updated just now</div>
+
+                <div class="live-indicator">
+                    <span class="pulse"></span>
+                    <span>Live updates enabled</span>
+                </div>
+            </div>
+
+            <!-- Next Task Preview -->
+            <div id="nextTaskSection" class="next-task-box hidden">
+                <h3>📋 Next Scheduled Task</h3>
+                <div class="task-preview">
+                    <div id="nextTaskText" class="task-preview-text">Task name</div>
+                    <div id="nextTaskTime" class="task-preview-time">Due time</div>
+                </div>
+            </div>
+
+            <!-- No Tasks -->
+            <div id="noTasksSection" class="next-task-box" style="text-align: center; color: #6b7280;">
+                <p>✨ No upcoming tasks scheduled</p>
+            </div>
+
+            <div style="margin-top: 24px; text-align: center; color: white; font-size: 0.9rem; opacity: 0.9;">
+                <p>This page updates automatically when status changes.</p>
+            </div>
+        </div>
+
+        <div id="errorContent" class="hidden">
+            <div class="card">
+                <div class="empty-state">
+                    <div style="font-size: 4rem; margin-bottom: 16px;">😕</div>
+                    <h2>User Not Found</h2>
+                    <p>This availability link doesn't exist or has been removed.</p>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // Get user ID from URL
+        const pathParts = window.location.pathname.split('/');
+        const userId = pathParts[pathParts.length - 1];
+
+        let lastStatus = null;
+
+        async function loadStatus() {
+            try {
+                const res = await fetch(`/api/public/status/${userId}`);
+
+                if (!res.ok) {
+                    showError();
+                    return;
+                }
+
+                const data = await res.json();
+                lastStatus = data;
+
+                document.getElementById('loading').classList.add('hidden');
+                document.getElementById('statusContent').classList.remove('hidden');
+
+                // Update status display
+                const statusMeta = data.statusMeta || { icon: '⚪', label: 'Unknown', color: '#6b7280' };
+                document.getElementById('statusIcon').textContent = statusMeta.icon;
+                document.getElementById('statusIcon').style.color = statusMeta.color;
+                document.getElementById('statusLabel').textContent = statusMeta.label;
+                document.getElementById('statusLabel').style.color = statusMeta.color;
+
+                // Update message
+                const message = data.status.message || getDefaultMessage(data.status.type);
+                document.getElementById('statusMessage').textContent = message;
+
+                // Update time
+                const updated = new Date(data.lastUpdated);
+                const timeStr = timeAgo(updated);
+                document.getElementById('statusTime').textContent = `Updated ${timeStr}`;
+
+                // Show/hide next task
+                if (data.nextTask) {
+                    document.getElementById('nextTaskSection').classList.remove('hidden');
+                    document.getElementById('noTasksSection').classList.add('hidden');
+                    document.getElementById('nextTaskText').textContent = data.nextTask.text;
+
+                    const due = new Date(data.nextTask.dueDate);
+                    document.getElementById('nextTaskTime').textContent = `Due: ${due.toLocaleString()}`;
+                } else {
+                    document.getElementById('nextTaskSection').classList.add('hidden');
+                    document.getElementById('noTasksSection').classList.remove('hidden');
+                }
+
+                // Update page title
+                document.title = `${data.username} - ${statusMeta.label}`;
+
+            } catch (err) {
+                console.error('Error loading status:', err);
+                showError();
+            }
+        }
+
+        function getDefaultMessage(type) {
+            const messages = {
+                available: "I'm available and ready to chat!",
+                busy: "I'm busy right now. Please check back later.",
+                meeting: "Currently in a meeting. I'll respond after.",
+                focus: "In deep focus mode. Only urgent messages please.",
+                break: "Taking a break. Back soon!",
+                custom: ""
+            };
+            return messages[type] || "";
+        }
+
+        function timeAgo(date) {
+            const seconds = Math.floor((new Date() - date) / 1000);
+
+            if (seconds < 60) return 'just now';
+            const minutes = Math.floor(seconds / 60);
+            if (minutes < 60) return `${minutes}m ago`;
+            const hours = Math.floor(minutes / 60);
+            if (hours < 24) return `${hours}h ago`;
+            return `${Math.floor(hours / 24)}d ago`;
+        }
+
+        function showError() {
+            document.getElementById('loading').classList.add('hidden');
+            document.getElementById('errorContent').classList.remove('hidden');
+        }
+
+        // Initial load
+        loadStatus();
+
+        // Set up Socket.io for real-time updates
+        const socket = io();
+
+        socket.on('connect', () => {
+            console.log('Connected for live updates');
+        });
+
+        socket.on(`status_update_${userId}`, (newStatus) => {
+            console.log('Status updated:', newStatus);
+            loadStatus(); // Reload to get full data with metadata
+        });
+
+        // Refresh every 30 seconds as backup
+        setInterval(loadStatus, 30000);
+    </script>
+</body>
+</html>
