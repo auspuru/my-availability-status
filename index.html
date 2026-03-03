@@ -1,0 +1,440 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>My Availability & Tasks</title>
+    <link rel="stylesheet" href="style.css">
+    <script src="/socket.io/socket.io.js"></script>
+</head>
+<body>
+    <div class="container">
+        <!-- Auth Section -->
+        <div id="authSection" class="auth-container">
+            <div class="card">
+                <h1>📅 Availability Manager</h1>
+                <p class="subtitle">Manage your tasks and share your availability status</p>
+
+                <!-- Login Form -->
+                <form id="loginForm">
+                    <div class="form-group">
+                        <label>Username</label>
+                        <input type="text" id="loginUsername" required placeholder="Enter username">
+                    </div>
+                    <div class="form-group">
+                        <label>Password</label>
+                        <input type="password" id="loginPassword" required placeholder="Enter password">
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-block">Login</button>
+                </form>
+
+                <!-- Register Form (Hidden by default) -->
+                <form id="registerForm" class="hidden">
+                    <div class="form-group">
+                        <label>Username</label>
+                        <input type="text" id="regUsername" required placeholder="Choose username">
+                    </div>
+                    <div class="form-group">
+                        <label>Password</label>
+                        <input type="password" id="regPassword" required placeholder="Choose password">
+                    </div>
+                    <button type="submit" class="btn btn-primary btn-block">Create Account</button>
+                </form>
+
+                <div class="toggle-auth">
+                    <span id="authToggleText">Don't have an account? <a onclick="toggleAuth()">Register</a></span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Dashboard Section (Hidden initially) -->
+        <div id="dashboardSection" class="hidden">
+            <!-- Header -->
+            <div class="dashboard-header">
+                <div class="user-info">
+                    <div class="avatar" id="userAvatar">U</div>
+                    <div>
+                        <h1 style="margin: 0;">My Dashboard</h1>
+                        <small style="color: #6b7280;">Welcome back, <span id="displayUsername">User</span></small>
+                    </div>
+                </div>
+                <button onclick="logout()" class="btn btn-secondary">Logout</button>
+            </div>
+
+            <!-- Status Card -->
+            <div class="card">
+                <h2>🟢 Set Your Status</h2>
+                <p class="subtitle">Your friends will see this status on your public page</p>
+
+                <div class="status-grid">
+                    <div class="status-option" data-status="available" onclick="setStatus('available')">
+                        <span class="icon">✅</span>
+                        <span class="label">Available</span>
+                    </div>
+                    <div class="status-option" data-status="busy" onclick="setStatus('busy')">
+                        <span class="icon">🔴</span>
+                        <span class="label">Busy</span>
+                    </div>
+                    <div class="status-option" data-status="meeting" onclick="setStatus('meeting')">
+                        <span class="icon">📅</span>
+                        <span class="label">In Meeting</span>
+                    </div>
+                    <div class="status-option" data-status="focus" onclick="setStatus('focus')">
+                        <span class="icon">🎯</span>
+                        <span class="label">Focus Mode</span>
+                    </div>
+                    <div class="status-option" data-status="break" onclick="setStatus('break')">
+                        <span class="icon">☕</span>
+                        <span class="label">On Break</span>
+                    </div>
+                    <div class="status-option" data-status="custom" onclick="setStatus('custom')">
+                        <span class="icon">⚪</span>
+                        <span class="label">Custom</span>
+                    </div>
+                </div>
+
+                <div class="status-custom">
+                    <label>Status Message (Optional)</label>
+                    <input type="text" id="statusMessage" placeholder="e.g., In a meeting until 3 PM, Coding - don't disturb unless urgent..." onchange="updateStatus()">
+                </div>
+
+                <!-- Shareable Link -->
+                <div class="share-section">
+                    <h3>🔗 Your Shareable Link</h3>
+                    <p style="font-size: 0.9rem; color: #166534; margin-bottom: 8px;">Share this with friends so they know when you're available</p>
+                    <div class="link-container">
+                        <input type="text" id="shareLink" class="link-input" readonly>
+                        <button onclick="copyLink()" class="btn btn-primary">Copy</button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Tasks Card -->
+            <div class="card">
+                <h2>📝 Tasks & Reminders</h2>
+                <p class="subtitle">Add important tasks with deadlines</p>
+
+                <form class="task-form" onsubmit="addTask(event)">
+                    <div>
+                        <label>Task</label>
+                        <input type="text" id="taskInput" placeholder="What needs to be done?" required>
+                    </div>
+                    <div>
+                        <label>Due Date</label>
+                        <input type="datetime-local" id="taskDueDate">
+                    </div>
+                    <button type="submit" class="btn btn-primary">Add Task</button>
+                </form>
+
+                <div id="taskList" class="task-list">
+                    <!-- Tasks will be rendered here -->
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Toast Notification -->
+    <div id="toast" class="toast"></div>
+
+    <script>
+        let currentUser = null;
+        let socket = null;
+
+        // Check for saved session
+        window.onload = () => {
+            const savedUser = localStorage.getItem('currentUser');
+            if (savedUser) {
+                currentUser = JSON.parse(savedUser);
+                showDashboard();
+                loadUserData();
+                initSocket();
+            }
+        };
+
+        function toggleAuth() {
+            const loginForm = document.getElementById('loginForm');
+            const registerForm = document.getElementById('registerForm');
+            const toggleText = document.getElementById('authToggleText');
+
+            if (loginForm.classList.contains('hidden')) {
+                loginForm.classList.remove('hidden');
+                registerForm.classList.add('hidden');
+                toggleText.innerHTML = 'Don\'t have an account? <a onclick="toggleAuth()">Register</a>';
+            } else {
+                loginForm.classList.add('hidden');
+                registerForm.classList.remove('hidden');
+                toggleText.innerHTML = 'Already have an account? <a onclick="toggleAuth()">Login</a>';
+            }
+        }
+
+        // Login
+        document.getElementById('loginForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const username = document.getElementById('loginUsername').value;
+            const password = document.getElementById('loginPassword').value;
+
+            try {
+                const res = await fetch('/api/login', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password })
+                });
+
+                const data = await res.json();
+                if (data.success) {
+                    currentUser = data;
+                    localStorage.setItem('currentUser', JSON.stringify(currentUser));
+                    showDashboard();
+                    loadUserData();
+                    initSocket();
+                    showToast('Login successful!');
+                } else {
+                    showToast(data.error || 'Login failed');
+                }
+            } catch (err) {
+                showToast('Error logging in');
+            }
+        });
+
+        // Register
+        document.getElementById('registerForm').addEventListener('submit', async (e) => {
+            e.preventDefault();
+            const username = document.getElementById('regUsername').value;
+            const password = document.getElementById('regPassword').value;
+
+            try {
+                const res = await fetch('/api/register', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ username, password })
+                });
+
+                const data = await res.json();
+                if (data.success) {
+                    currentUser = data;
+                    localStorage.setItem('currentUser', JSON.stringify(currentUser));
+                    showDashboard();
+                    loadUserData();
+                    initSocket();
+                    showToast('Account created! Share your link with friends.');
+                } else {
+                    showToast(data.error || 'Registration failed');
+                }
+            } catch (err) {
+                showToast('Error creating account');
+            }
+        });
+
+        function showDashboard() {
+            document.getElementById('authSection').classList.add('hidden');
+            document.getElementById('dashboardSection').classList.remove('hidden');
+
+            document.getElementById('displayUsername').textContent = currentUser.username;
+            document.getElementById('userAvatar').textContent = currentUser.username.charAt(0).toUpperCase();
+            document.getElementById('shareLink').value = currentUser.shareableLink;
+        }
+
+        function logout() {
+            currentUser = null;
+            localStorage.removeItem('currentUser');
+            if (socket) socket.disconnect();
+            document.getElementById('dashboardSection').classList.add('hidden');
+            document.getElementById('authSection').classList.remove('hidden');
+            document.getElementById('loginForm').reset();
+        }
+
+        async function loadUserData() {
+            try {
+                const res = await fetch(`/api/user/${currentUser.userId}`);
+                const data = await res.json();
+
+                // Set status UI
+                if (data.status) {
+                    document.querySelectorAll('.status-option').forEach(el => {
+                        el.classList.remove('active');
+                        if (el.dataset.status === data.status.type) {
+                            el.classList.add('active');
+                        }
+                    });
+                    document.getElementById('statusMessage').value = data.status.message || '';
+                }
+
+                // Render tasks
+                renderTasks(data.tasks || []);
+            } catch (err) {
+                console.error('Error loading user data:', err);
+            }
+        }
+
+        function initSocket() {
+            socket = io();
+
+            socket.on('connect', () => {
+                console.log('Connected to server');
+            });
+
+            // Listen for status updates (in case user has page open in multiple tabs)
+            socket.on(`status_update_${currentUser.userId}`, (status) => {
+                console.log('Status updated:', status);
+            });
+        }
+
+        async function setStatus(type) {
+            // Update UI immediately
+            document.querySelectorAll('.status-option').forEach(el => {
+                el.classList.remove('active');
+                if (el.dataset.status === type) {
+                    el.classList.add('active');
+                }
+            });
+
+            await updateStatus();
+        }
+
+        async function updateStatus() {
+            if (!currentUser) return;
+
+            const type = document.querySelector('.status-option.active')?.dataset.status || 'available';
+            const message = document.getElementById('statusMessage').value;
+
+            try {
+                const res = await fetch(`/api/status/${currentUser.userId}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ type, message })
+                });
+
+                if (res.ok) {
+                    showToast('Status updated!');
+                }
+            } catch (err) {
+                showToast('Error updating status');
+            }
+        }
+
+        function copyLink() {
+            const input = document.getElementById('shareLink');
+            input.select();
+            input.setSelectionRange(0, 99999);
+            navigator.clipboard.writeText(input.value);
+            showToast('Link copied to clipboard!');
+        }
+
+        async function addTask(e) {
+            e.preventDefault();
+            if (!currentUser) return;
+
+            const text = document.getElementById('taskInput').value;
+            const dueDate = document.getElementById('taskDueDate').value;
+
+            try {
+                const res = await fetch(`/api/tasks/${currentUser.userId}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ text, dueDate })
+                });
+
+                const data = await res.json();
+                if (data.success) {
+                    document.getElementById('taskInput').value = '';
+                    document.getElementById('taskDueDate').value = '';
+                    loadUserData(); // Reload to show new task
+                    showToast('Task added!');
+                }
+            } catch (err) {
+                showToast('Error adding task');
+            }
+        }
+
+        async function toggleTask(taskId) {
+            try {
+                const res = await fetch(`/api/tasks/${currentUser.userId}/${taskId}`, {
+                    method: 'PUT'
+                });
+
+                if (res.ok) {
+                    loadUserData();
+                }
+            } catch (err) {
+                showToast('Error updating task');
+            }
+        }
+
+        async function deleteTask(taskId) {
+            if (!confirm('Delete this task?')) return;
+
+            try {
+                const res = await fetch(`/api/tasks/${currentUser.userId}/${taskId}`, {
+                    method: 'DELETE'
+                });
+
+                if (res.ok) {
+                    loadUserData();
+                    showToast('Task deleted');
+                }
+            } catch (err) {
+                showToast('Error deleting task');
+            }
+        }
+
+        function renderTasks(tasks) {
+            const container = document.getElementById('taskList');
+
+            if (tasks.length === 0) {
+                container.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">📝</div>
+                        <p>No tasks yet. Add one above!</p>
+                    </div>
+                `;
+                return;
+            }
+
+            // Sort: incomplete first, then by due date
+            tasks.sort((a, b) => {
+                if (a.completed !== b.completed) return a.completed ? 1 : -1;
+                if (!a.dueDate) return 1;
+                if (!b.dueDate) return -1;
+                return new Date(a.dueDate) - new Date(b.dueDate);
+            });
+
+            container.innerHTML = tasks.map(task => {
+                const dueDate = task.dueDate ? new Date(task.dueDate) : null;
+                const dueStr = dueDate ? dueDate.toLocaleString() : 'No deadline';
+                const isOverdue = dueDate && !task.completed && dueDate < new Date();
+
+                return `
+                    <div class="task-item ${task.completed ? 'completed' : ''}">
+                        <input type="checkbox" class="task-checkbox" 
+                               ${task.completed ? 'checked' : ''} 
+                               onchange="toggleTask('${task.id}')">
+                        <div class="task-content">
+                            <div class="task-text">${escapeHtml(task.text)}</div>
+                            <div class="task-meta">
+                                <span style="color: ${isOverdue ? 'var(--danger)' : '#6b7280'}">
+                                    ${isOverdue ? '⚠️ Overdue: ' : '📅 '}${dueStr}
+                                </span>
+                                <span class="priority-badge priority-${task.priority}">${task.priority}</span>
+                            </div>
+                        </div>
+                        <button class="delete-btn" onclick="deleteTask('${task.id}')">🗑️</button>
+                    </div>
+                `;
+            }).join('');
+        }
+
+        function escapeHtml(text) {
+            const div = document.createElement('div');
+            div.textContent = text;
+            return div.innerHTML;
+        }
+
+        function showToast(message) {
+            const toast = document.getElementById('toast');
+            toast.textContent = message;
+            toast.classList.add('show');
+            setTimeout(() => toast.classList.remove('show'), 3000);
+        }
+    </script>
+</body>
+</html>
